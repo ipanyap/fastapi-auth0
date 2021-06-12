@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Header, Depends, HTTPException
+from fastapi import Header, Depends, HTTPException
+from fastapi.security import APIKeyCookie
 
-from typing import List, Optional
+from typing import List
 
 from jose import jwt
 from six.moves.urllib.request import urlopen
@@ -8,11 +9,16 @@ from six.moves.urllib.request import urlopen
 import json
 import ssl
 
+from starlette.responses import Response
 from pydantic import BaseModel
 
-config_file = open("auth_config.json")
+import user
+
+config_file = open("config.json")
 config = json.load(config_file);
 config_file.close()
+
+cookie_sec = APIKeyCookie(name="session")
 
 class AccessToken(BaseModel):
 	credentials: dict
@@ -23,9 +29,10 @@ class AccessToken(BaseModel):
 			return True
 		else:
 			raise HTTPException(
-				status = 403,
+				status_code = 403,
 				detail = "Not authorized to perform this action"
 			)
+
 
 def accessToken(authorization: str = Header(None)):
 	if not authorization:
@@ -37,7 +44,7 @@ def accessToken(authorization: str = Header(None)):
 	try:
 	
 		#1. Get jwks
-		jsonurl = urlopen("https://" + config["domain"] + "/.well-known/jwks.json", context = ssl._create_unverified_context())
+		jsonurl = urlopen("https://" + config["auth0"]["domain"] + "/.well-known/jwks.json", context = ssl._create_unverified_context())
 		unverified_header = jwt.get_unverified_header(authorization)
 		unverified_claims = jwt.get_unverified_claims(authorization)
 		jwks = json.loads(jsonurl.read())
@@ -53,7 +60,7 @@ def accessToken(authorization: str = Header(None)):
 				}
 			
 		#3. Decode token
-		payload = jwt.decode(authorization, rsa_key, algorithms = ["RS256"], audience = config["audience"], issuer = "https://" + config["domain"] + "/")
+		payload = jwt.decode(authorization, rsa_key, algorithms = ["RS256"], audience = config["auth0"]["audience"], issuer = "https://" + config["auth0"]["domain"] + "/")
 		returnedToken = AccessToken(credentials = payload, scopes = unverified_claims["scope"].split(" "))
 		return returnedToken
 		
@@ -68,4 +75,33 @@ def accessToken(authorization: str = Header(None)):
 			status_code = 401,
 			detail = "Wrong credentials"
 		)
+
+
+def currentUser(session: str = Depends(cookie_sec)):
+	if not session:
+		raise HTTPException(
+			status_code = 403,
+			detail = "No valid session found"
+		)
+	
+	try:
+		payload = jwt.decode(session, config["session"]["secret"])
+		user_id = payload["sub"]
+		
+		return user.find(user_id)
+	except Exception:
+		raise HTTPException(
+			status_code = 403,
+			detail = "Invalid authentication"
+		)
+
+
+def createSession(response: Response, user_id: str):
+	token = jwt.encode({"sub": user_id}, config["session"]["secret"])
+	response.set_cookie("session", token)
+
+	
+def destroySession(response: Response):
+	response.delete_cookie("session")
+
 

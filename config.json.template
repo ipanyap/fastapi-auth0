@@ -1,0 +1,16 @@
+{
+	"auth0": {
+		"domain": "",
+		"audience": ""
+	},
+	"db": {
+        "host": "",
+        "database": "",
+        "port": 0,
+        "user": "",
+        "password": ""
+    },
+	"session": {
+		"secret": ""
+	}
+}
